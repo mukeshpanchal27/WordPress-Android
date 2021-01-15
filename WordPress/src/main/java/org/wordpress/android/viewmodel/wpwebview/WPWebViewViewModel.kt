@@ -15,8 +15,11 @@ import org.wordpress.android.util.NetworkUtilsWrapper
 import org.wordpress.android.viewmodel.SingleLiveEvent
 import org.wordpress.android.viewmodel.helpers.ConnectionStatus
 import org.wordpress.android.viewmodel.helpers.ConnectionStatus.AVAILABLE
-import org.wordpress.android.viewmodel.wpwebview.WPWebViewViewModel.PreviewMode.DEFAULT
-import org.wordpress.android.viewmodel.wpwebview.WPWebViewViewModel.PreviewMode.DESKTOP
+import org.wordpress.android.ui.sitecreation.theme.PreviewMode
+import org.wordpress.android.ui.sitecreation.theme.PreviewMode.DESKTOP
+import org.wordpress.android.ui.sitecreation.theme.PreviewMode.MOBILE
+import org.wordpress.android.ui.sitecreation.theme.PreviewMode.TABLET
+import org.wordpress.android.ui.sitecreation.theme.PreviewModeHandler
 import org.wordpress.android.viewmodel.wpwebview.WPWebViewViewModel.WebPreviewUiState.WebPreviewContentUiState
 import org.wordpress.android.viewmodel.wpwebview.WPWebViewViewModel.WebPreviewUiState.WebPreviewFullscreenProgressUiState
 import org.wordpress.android.viewmodel.wpwebview.WPWebViewViewModel.WebPreviewUiState.WebPreviewFullscreenUiState.WebPreviewFullscreenErrorUiState
@@ -26,7 +29,7 @@ class WPWebViewViewModel
 @Inject constructor(
     private val networkUtils: NetworkUtilsWrapper,
     connectionStatus: LiveData<ConnectionStatus>
-) : ViewModel() {
+) : ViewModel(), PreviewModeHandler {
     private var isStarted = false
     private var wpWebViewUsageCategory: WPWebViewUsageCategory = WPWebViewUsageCategory.WEBVIEW_STANDARD
 
@@ -54,7 +57,7 @@ class WPWebViewViewModel
     val navbarUiState: LiveData<NavBarUiState> = _navbarUiState
 
     private val _previewMode: MutableLiveData<PreviewMode> = MutableLiveData()
-    val previewMode: LiveData<PreviewMode> = _previewMode
+    val previewModeData: LiveData<PreviewMode> = _previewMode
 
     private val lifecycleOwner = object : LifecycleOwner {
         val lifecycleRegistry = LifecycleRegistry(this)
@@ -79,13 +82,13 @@ class WPWebViewViewModel
         _navbarUiState.value = NavBarUiState(
                 forwardNavigationEnabled = false,
                 backNavigationEnabled = false,
-                desktopPreviewHintVisible = false
+                reviewHintResId = R.string.web_preview_mobile
         )
-        _previewMode.value = DEFAULT
+        _previewMode.value = MOBILE
         _previewModeSelector.value = PreviewModeSelectorStatus(
                 isVisible = false,
                 isEnabled = false,
-                selectedPreviewMode = DEFAULT
+                selectedPreviewMode = MOBILE
         )
 
         if (WPWebViewUsageCategory.isActionableDirectUsage(wpWebViewUsageCategory)) {
@@ -172,14 +175,18 @@ class WPWebViewViewModel
     }
 
     fun togglePreviewModeSelectorVisibility(isVisible: Boolean) {
-        _previewModeSelector.value = PreviewModeSelectorStatus(isVisible, true, previewMode.value!!)
+        _previewModeSelector.value = PreviewModeSelectorStatus(isVisible, true, previewModeData.value!!)
     }
 
     fun selectPreviewMode(selectedPreviewMode: PreviewMode) {
-        if (previewMode.value != selectedPreviewMode) {
+        if (previewModeData.value != selectedPreviewMode) {
             _previewMode.value = selectedPreviewMode
             _navbarUiState.value =
-                    navbarUiState.value!!.copy(desktopPreviewHintVisible = selectedPreviewMode == DESKTOP)
+                    navbarUiState.value!!.copy(reviewHintResId = when(selectedPreviewMode){
+                        MOBILE -> R.string.web_preview_mobile
+                        TABLET -> R.string.web_preview_tablet
+                        DESKTOP -> R.string.web_preview_desktop
+                    })
             updateUiState(WebPreviewFullscreenProgressUiState)
         }
     }
@@ -187,13 +194,8 @@ class WPWebViewViewModel
     data class NavBarUiState(
         val forwardNavigationEnabled: Boolean,
         val backNavigationEnabled: Boolean,
-        val desktopPreviewHintVisible: Boolean
+        val reviewHintResId: Int
     )
-
-    enum class PreviewMode {
-        DEFAULT,
-        DESKTOP
-    }
 
     data class PreviewModeSelectorStatus(
         val isVisible: Boolean,
@@ -234,4 +236,8 @@ class WPWebViewViewModel
             }
         }
     }
+
+    override fun getPreviewMode(): PreviewMode = _previewMode.value ?: MOBILE
+
+    override fun setPreviewMode(mode: PreviewMode) = selectPreviewMode(mode)
 }

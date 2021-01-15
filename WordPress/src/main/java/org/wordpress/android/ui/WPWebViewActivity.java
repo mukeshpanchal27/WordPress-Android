@@ -4,11 +4,9 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.TextUtils;
-import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -17,14 +15,12 @@ import android.view.View.OnClickListener;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.WebViewClient;
-import android.widget.AdapterView;
 import android.widget.LinearLayout;
-import android.widget.PopupWindow.OnDismissListener;
 import android.widget.ProgressBar;
+import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.ActionBar;
-import androidx.appcompat.widget.ListPopupWindow;
 import androidx.appcompat.widget.Toolbar;
 import androidx.appcompat.widget.TooltipCompat;
 import androidx.lifecycle.Observer;
@@ -48,6 +44,8 @@ import org.wordpress.android.fluxc.store.SiteStore.FetchPrivateAtomicCookiePaylo
 import org.wordpress.android.fluxc.store.SiteStore.OnPrivateAtomicCookieFetched;
 import org.wordpress.android.ui.PrivateAtCookieRefreshProgressDialog.PrivateAtCookieProgressDialogOnDismissListener;
 import org.wordpress.android.ui.reader.ReaderActivityLauncher;
+import org.wordpress.android.ui.sitecreation.theme.PreviewMode;
+import org.wordpress.android.ui.sitecreation.theme.PreviewModeSelectorPopup;
 import org.wordpress.android.ui.utils.UiHelpers;
 import org.wordpress.android.util.AniUtils;
 import org.wordpress.android.util.AppLog;
@@ -61,7 +59,6 @@ import org.wordpress.android.util.WPWebViewClient;
 import org.wordpress.android.util.helpers.WPWebChromeClient;
 import org.wordpress.android.viewmodel.wpwebview.WPWebViewViewModel;
 import org.wordpress.android.viewmodel.wpwebview.WPWebViewViewModel.NavBarUiState;
-import org.wordpress.android.viewmodel.wpwebview.WPWebViewViewModel.PreviewMode;
 import org.wordpress.android.viewmodel.wpwebview.WPWebViewViewModel.PreviewModeSelectorStatus;
 import org.wordpress.android.viewmodel.wpwebview.WPWebViewViewModel.WebPreviewUiState;
 import org.wordpress.android.viewmodel.wpwebview.WPWebViewViewModel.WebPreviewUiState.WebPreviewFullscreenUiState;
@@ -141,7 +138,7 @@ public class WPWebViewActivity extends WebViewActivity implements ErrorManagedWe
     private ActionableEmptyView mActionableEmptyView;
     private ViewGroup mFullScreenProgressLayout;
     private WPWebViewViewModel mViewModel;
-    private ListPopupWindow mPreviewModeSelector;
+    private PreviewModeSelectorPopup mPreviewModeSelectorPopup;
     private ElevationOverlayProvider mElevationOverlayProvider;
     private View mNavBarContainer;
     private LinearLayout mNavBar;
@@ -150,7 +147,7 @@ public class WPWebViewActivity extends WebViewActivity implements ErrorManagedWe
     private View mShareButton;
     private View mExternalBrowserButton;
     private View mPreviewModeButton;
-    private View mDesktopPreviewHint;
+    private TextView mDesktopPreviewHint;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -237,6 +234,8 @@ public class WPWebViewActivity extends WebViewActivity implements ErrorManagedWe
             }
         }
 
+        mPreviewModeSelectorPopup = new PreviewModeSelectorPopup(this, mPreviewModeButton);
+
         setupToolbar();
     }
 
@@ -320,7 +319,8 @@ public class WPWebViewActivity extends WebViewActivity implements ErrorManagedWe
                 if (navBarUiState != null) {
                     mNavigateBackButton.setEnabled(navBarUiState.getBackNavigationEnabled());
                     mNavigateForwardButton.setEnabled(navBarUiState.getForwardNavigationEnabled());
-                    AniUtils.animateBottomBar(mDesktopPreviewHint, navBarUiState.getDesktopPreviewHintVisible());
+                    mDesktopPreviewHint.setText(navBarUiState.getReviewHintResId());
+                    AniUtils.animateBottomBar(mDesktopPreviewHint, true);
                 }
             }
         });
@@ -378,58 +378,18 @@ public class WPWebViewActivity extends WebViewActivity implements ErrorManagedWe
             public void onChanged(final @Nullable PreviewModeSelectorStatus previewModelSelectorStatus) {
                 if (previewModelSelectorStatus != null) {
                     mPreviewModeButton.setEnabled(previewModelSelectorStatus.isEnabled());
-
-                    if (!previewModelSelectorStatus.isVisible()) {
-                        return;
+                    if (previewModelSelectorStatus.isVisible()) {
+                        mPreviewModeSelectorPopup.show(mViewModel);
                     }
-
-                    mPreviewModeButton.post(new Runnable() {
-                        @Override public void run() {
-                            int popupWidth =
-                                    getResources().getDimensionPixelSize(R.dimen.web_preview_mode_popup_width);
-                            int popupOffset = getResources().getDimensionPixelSize(R.dimen.margin_extra_large);
-
-                            mPreviewModeSelector = new ListPopupWindow(WPWebViewActivity.this);
-                            mPreviewModeSelector.setWidth(popupWidth);
-                            mPreviewModeSelector.setAdapter(new PreviewModeMenuAdapter(WPWebViewActivity.this,
-                                    previewModelSelectorStatus.getSelectedPreviewMode()));
-                            mPreviewModeSelector.setDropDownGravity(Gravity.END);
-                            mPreviewModeSelector.setAnchorView(mPreviewModeButton);
-                            mPreviewModeSelector.setHorizontalOffset(-popupOffset);
-                            mPreviewModeSelector.setVerticalOffset(popupOffset);
-                            mPreviewModeSelector.setModal(true);
-
-                            int elevatedPopupBackgroundColor =
-                                    mElevationOverlayProvider.compositeOverlayWithThemeSurfaceColorIfNeeded(
-                                            getResources().getDimension(R.dimen.popup_over_toolbar_elevation));
-                            mPreviewModeSelector.setBackgroundDrawable(new ColorDrawable(elevatedPopupBackgroundColor));
-
-                            mPreviewModeSelector.setOnDismissListener(new OnDismissListener() {
-                                @Override public void onDismiss() {
-                                    mViewModel.togglePreviewModeSelectorVisibility(false);
-                                }
-                            });
-                            mPreviewModeSelector.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-                                @Override
-                                public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                                    mPreviewModeSelector.dismiss();
-                                    PreviewModeMenuAdapter adapter = (PreviewModeMenuAdapter) parent.getAdapter();
-                                    PreviewMode selectedMode = adapter.getItem(position);
-                                    mViewModel.selectPreviewMode(selectedMode);
-                                }
-                            });
-                            mPreviewModeSelector.show();
-                        }
-                    });
                 }
             }
         });
 
-        mViewModel.getPreviewMode().observe(this, new Observer<PreviewMode>() {
+        mViewModel.getPreviewModeData().observe(this, new Observer<PreviewMode>() {
             @Override
             public void onChanged(@Nullable PreviewMode previewMode) {
-                mWebView.getSettings().setLoadWithOverviewMode(previewMode == PreviewMode.DESKTOP);
-                mWebView.getSettings().setUseWideViewPort(previewMode != PreviewMode.DESKTOP);
+                mWebView.getSettings().setLoadWithOverviewMode(true);
+                mWebView.getSettings().setUseWideViewPort(true);
                 mWebView.setInitialScale(100);
                 mWebView.reload();
             }
@@ -706,12 +666,19 @@ public class WPWebViewActivity extends WebViewActivity implements ErrorManagedWe
     @Override
     public void onWebViewPageLoaded() {
         mViewModel.onUrlLoaded();
+        enforcePreviewMode();
         refreshBackForwardNavButtons();
     }
 
     private void refreshBackForwardNavButtons() {
         mViewModel.toggleBackNavigation(mWebView.canGoBack());
         mViewModel.toggleForwardNavigation(mWebView.canGoForward());
+    }
+
+    private void enforcePreviewMode() {
+        int previewWidth = mViewModel.getPreviewMode().getPreviewWidth();
+        String script = getResources().getString(R.string.web_preview_width_script, previewWidth);
+        mWebView.evaluateJavascript(script, null);
     }
 
     @Override
@@ -909,14 +876,6 @@ public class WPWebViewActivity extends WebViewActivity implements ErrorManagedWe
     private void setResultIfNeededAndFinish() {
         setResultIfNeeded();
         finish();
-    }
-
-    protected void onDestroy() {
-        super.onDestroy();
-        if (mPreviewModeSelector != null && mPreviewModeSelector.isShowing()) {
-            mPreviewModeSelector.setOnDismissListener(null);
-            mPreviewModeSelector.dismiss();
-        }
     }
 
     @Override
